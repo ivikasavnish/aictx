@@ -1,0 +1,84 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ github.ref_name }}
+        run: |
+          if [ "$GOOS" = "windows" ]; then
+            OUT="aictx-${GOOS}-${GOARCH}.exe"
+          else
+            OUT="aictx-${GOOS}-${GOARCH}"
+          fi
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$OUT" .
+          sha256sum "$OUT" | awk '{print $1}' > "${OUT}.sha256"
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aictx-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            aictx-${{ matrix.goos }}-${{ matrix.goarch }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            aictx-linux-amd64
+            aictx-linux-amd64.sha256
+            aictx-linux-arm64
+            aictx-linux-arm64.sha256
+            aictx-darwin-amd64
+            aictx-darwin-amd64.sha256
+            aictx-darwin-arm64
+            aictx-darwin-arm64.sha256
+            aictx-windows-amd64.exe
+            aictx-windows-amd64.exe.sha256
+            aictx-windows-arm64.exe
+            aictx-windows-arm64.exe.sha256
+          generate_release_notes: true
